@@ -1,0 +1,57 @@
+# =============================================================================
+# Docker Compose - Local Development
+# =============================================================================
+# Usage:
+#   docker-compose up --build        # Build and run
+#   docker-compose up -d             # Run in background
+#   docker-compose logs -f           # View logs
+#   docker-compose down              # Stop and remove
+# =============================================================================
+
+version: '3.8'
+
+services:
+  ocr-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ocr-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist database
+      - ./data:/app/data
+      # Mount samples for testing (optional)
+      - ./samples:/app/samples:ro
+    environment:
+      - DATABASE_URL=sqlite:////app/data/documents.db
+      - OCR_OFFLINE_MODE=true
+      - ENABLE_TEXTRACT=false
+      # Uncomment for Textract support:
+      # - ENABLE_TEXTRACT=true
+      # - AWS_REGION=us-east-1
+      # - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      # - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # Optional: PostgreSQL for production
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: ocr-postgres
+  #   environment:
+  #     - POSTGRES_USER=ocr
+  #     - POSTGRES_PASSWORD=ocr_password
+  #     - POSTGRES_DB=documents
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+# volumes:
+#   postgres_data:

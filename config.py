@@ -1,0 +1,66 @@
+"""
+Configuration for Document Processing Pipeline
+"""
+
+from dataclasses import dataclass, field
+from typing import Optional
+import os
+
+
+@dataclass
+class ProcessingConfig:
+    """Pipeline configuration - easily toggle features."""
+
+    # Extraction levels (enable/disable)
+    enable_native_extraction: bool = True    # Level 1: Free parsing
+    enable_local_ocr: bool = True            # Level 2: LightOnOCR
+    enable_textract: bool = False            # Level 3: AWS Textract (paid)
+
+    # Retry settings
+    max_retries_per_level: int = 2
+    retry_delay_seconds: int = 5
+
+    # Quality thresholds (0-100)
+    min_confidence_score: int = 60           # Below this, escalate to next level
+    min_chars_per_page: int = 100            # Below this, likely failed extraction
+    max_gibberish_ratio: float = 0.15        # Above this, likely garbage output
+
+    # OCR Model settings
+    ocr_model_name: str = "lightonai/LightOnOCR-1B-1025"
+    ocr_max_new_tokens: int = 2048
+    ocr_image_max_dim: int = 1540
+    ocr_offline_mode: bool = True  # Don't call HF Hub if model is cached
+
+    # AWS settings (for Textract fallback)
+    aws_region: str = field(default_factory=lambda: os.getenv("AWS_REGION", "us-east-1"))
+    textract_features: list = field(default_factory=lambda: ["TABLES", "FORMS"])
+
+    # Database settings
+    database_url: str = field(default_factory=lambda: os.getenv(
+        "DATABASE_URL",
+        "sqlite:///documents.db"
+    ))
+
+    # Storage settings
+    store_original_file: bool = True         # Store original doc as base64 too
+    max_file_size_mb: int = 50               # Reject files larger than this
+
+    # Processing settings
+    batch_size: int = 10                     # Process N docs before committing
+    worker_timeout_seconds: int = 300        # 5 min max per document
+
+
+# Default config - can be overridden
+config = ProcessingConfig()
+
+
+def enable_textract():
+    """Enable Textract fallback (for production use)."""
+    config.enable_textract = True
+    print("Textract fallback ENABLED")
+
+
+def disable_textract():
+    """Disable Textract fallback (for cost savings)."""
+    config.enable_textract = False
+    print("Textract fallback DISABLED")
