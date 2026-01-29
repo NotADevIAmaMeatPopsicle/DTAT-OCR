@@ -28,10 +28,12 @@ Document → Multi-Strategy OCR → Normalized Format → Format Converters → 
 | [TASK-002](TASK-002-Profile-Schema-Management-System.md) | Profile & Schema Management | High | 🟡 **Phase 7 Complete** | TASK-001 | 8 weeks |
 | └─ [Phase 8](TASK-002-Profile-Schema-Management-System.md#phase-8) | Profile Statistics & Docs | High | ⏸️ Pending | Phase 1-7 | 1 week |
 | └─ [Follow-up](TASK-002-PHASE-7-FOLLOWUP.md) | Critical Fixes (9 issues) | 🔴 **Critical** | ⏸️ Pending | Phase 7 | 2-3 weeks |
-| [TASK-003](TASK-003-Structured-Field-Extraction.md) | Structured Field Extraction (Bedrock) | High | ⏸️ Not Started | TASK-001, TASK-002 | 4-6 weeks |
-| [TASK-004](TASK-004-Batch-Processing-Support.md) | Batch Processing | Medium | ⏸️ Not Started | TASK-001, TASK-002 | 3-4 weeks |
+| [TASK-003](TASK-003-Structured-Field-Extraction.md) | Structured Field Extraction (Bedrock) | Low | 💡 **Optional** | TASK-001, TASK-002 | 4-6 weeks |
+| [TASK-004](TASK-004-Batch-Processing-Support.md) | Batch Processing | High | 🔄 **In Progress** | TASK-001, TASK-002 | 6 weeks |
+| └─ Phase 1 | Database Schema & Models | High | 🔄 **Starting** | - | 1 week |
 
-**Progress**: 2/4 major tasks complete • **Next**: Fix critical issues before Phase 8
+**Progress**: 2/4 major tasks complete • **Current**: Starting TASK-004 Phase 1 (batch processing)
+**Note**: TASK-003 (Bedrock LLM) marked as optional - contradicts local-only vision
 
 ---
 
@@ -480,13 +482,38 @@ For questions or clarifications, refer to:
 ## Current Status Summary
 
 **Completed**: 2/4 major tasks (TASK-001, TASK-002 Phases 1-7)
-**In Progress**: Critical follow-up fixes (9 issues)
-**Pending**: TASK-002 Phase 8, TASK-003, TASK-004
+**In Progress**: TASK-004 Phase 1 (Batch Processing - Database Schema)
+**Pending**: TASK-002 Phase 8 + Critical Fixes
+**Optional**: TASK-003 (Bedrock LLM - contradicts local-only vision)
 
-**Overall Progress**: ~60% complete (10/16 weeks)
+**Overall Progress**: ~60% complete (10/16 weeks core features)
 
 ---
 
-**Last Updated**: 2026-01-29 17:00
-**Status**: TASK-002 Phase 7 Complete • Critical Fixes in Progress
-**Next Step**: Fix 9 critical issues in TASK-002-PHASE-7-FOLLOWUP.md before Phase 8
+## Next Steps
+
+### Immediate (This Week)
+1. **TASK-004 Phase 1**: Implement batch processing database schema
+   - 3 new tables: batch_jobs, batch_documents, batch_events
+   - Pydantic models: BatchJob, BatchDocument
+   - Basic CRUD operations
+
+2. **Deploy in CPU mode** (GPU optional future enhancement)
+   - Parallel workers: 2-3 (CPU mode)
+   - Still get 2x performance improvement
+   - Same codebase as GPU mode
+
+### Short Term (Next 2-3 Weeks)
+3. **TASK-004 Phase 2-3**: Build API endpoints and worker pool
+4. **TASK-004 Phase 4**: Export functionality (JSON, CSV, Excel, ZIP)
+
+### Medium Term (After Batch MVP)
+5. Fix critical issues from TASK-002-PHASE-7-FOLLOWUP.md (3 already fixed)
+6. Complete TASK-002 Phase 8 (Profile statistics)
+7. Polish and production-ready
+
+---
+
+**Last Updated**: 2026-01-29 18:30
+**Status**: Starting TASK-004 Batch Processing (CPU mode)
+**Next Step**: Create database schema for batch jobs (Phase 1, Week 1)
