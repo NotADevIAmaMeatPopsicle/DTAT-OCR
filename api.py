@@ -681,22 +681,60 @@ async def ocr_raw_binary(
 
 
 # =============================================================================
-# ASYNC OCR JOB SYSTEM
+# ASYNC OCR JOB SYSTEM (PostgreSQL-backed, works across workers)
 # =============================================================================
 
-import asyncio
 import uuid as _uuid
-from collections import OrderedDict
-
-# In-memory job store (survives across requests within a worker, not across restarts)
-_ocr_jobs: OrderedDict = OrderedDict()
-_MAX_JOBS = 500  # Evict oldest jobs when exceeded
+from sqlalchemy import text as sa_text
 
 
-def _cleanup_jobs():
-    """Evict oldest jobs when store exceeds max size."""
-    while len(_ocr_jobs) > _MAX_JOBS:
-        _ocr_jobs.popitem(last=False)
+def _create_job(job_id: str):
+    """Insert a new job into PostgreSQL."""
+    session = get_session()
+    try:
+        session.execute(sa_text(
+            "INSERT INTO ocr_jobs (job_id, status) VALUES (:jid, 'processing')"
+        ), {"jid": job_id})
+        session.commit()
+    finally:
+        session.close()
+
+
+def _complete_job(job_id: str, document_id: int, text: str, confidence: float, processing_time_ms: int):
+    """Mark a job as completed in PostgreSQL."""
+    session = get_session()
+    try:
+        session.execute(sa_text(
+            "UPDATE ocr_jobs SET status='completed', document_id=:did, extracted_text=:txt, "
+            "confidence=:conf, processing_time_ms=:ptms, completed_at=NOW() WHERE job_id=:jid"
+        ), {"jid": job_id, "did": document_id, "txt": text, "conf": confidence, "ptms": processing_time_ms})
+        session.commit()
+    finally:
+        session.close()
+
+
+def _fail_job(job_id: str, error: str):
+    """Mark a job as failed in PostgreSQL."""
+    session = get_session()
+    try:
+        session.execute(sa_text(
+            "UPDATE ocr_jobs SET status='failed', error_message=:err, completed_at=NOW() WHERE job_id=:jid"
+        ), {"jid": job_id, "err": error})
+        session.commit()
+    finally:
+        session.close()
+
+
+def _get_job(job_id: str):
+    """Get job from PostgreSQL."""
+    session = get_session()
+    try:
+        row = session.execute(sa_text("SELECT * FROM ocr_jobs WHERE job_id=:jid"), {"jid": job_id}).mappings().first()
+        if not row:
+            return None
+        return dict(row)
+    finally:
+        session.close()
 
 
 def _process_ocr_job(job_id: str, contents: bytes, file_type: str, filename: str):
@@ -725,18 +763,9 @@ def _process_ocr_job(job_id: str, contents: bytes, file_type: str, filename: str
             elif isinstance(content, dict):
                 text = content.get("text", content.get("extracted_text", ""))
 
-        _ocr_jobs[job_id].update({
-            "status": "completed",
-            "document_id": result.id,
-            "text": text,
-            "confidence": result.confidence_score,
-            "processing_time_ms": result.processing_time_ms,
-        })
+        _complete_job(job_id, result.id, text, result.confidence_score or 0, result.processing_time_ms or 0)
     except Exception as e:
-        _ocr_jobs[job_id].update({
-            "status": "failed",
-            "error": str(e),
-        })
+        _fail_job(job_id, str(e))
 
 
 @app.post("/ocr/async")
@@ -747,7 +776,7 @@ async def ocr_async(
 ):
     """
     Fire-and-forget OCR. Returns job ID immediately, poll /ocr/jobs/{job_id} for result.
-    Accepts raw image binary in request body.
+    Accepts raw image binary in request body. Works across all workers (PostgreSQL-backed).
     """
     from fastapi.responses import JSONResponse
 
@@ -769,8 +798,7 @@ async def ocr_async(
     filename = f"async_upload.{file_type}"
 
     job_id = str(_uuid.uuid4())
-    _ocr_jobs[job_id] = {"status": "processing", "created_at": datetime.utcnow().isoformat()}
-    _cleanup_jobs()
+    _create_job(job_id)
 
     background_tasks.add_task(_process_ocr_job, job_id, contents, file_type, filename)
 
@@ -782,32 +810,60 @@ async def ocr_job_status(
     job_id: str,
     username: str = Depends(verify_credentials)
 ):
-    """Poll for async OCR job result."""
+    """Poll for async OCR job result. Works across all workers (PostgreSQL-backed)."""
     from fastapi.responses import JSONResponse
 
-    job = _ocr_jobs.get(job_id)
+    job = _get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    return JSONResponse(content={"job_id": job_id, **job})
+    result = {
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "created_at": job["created_at"].isoformat() if job["created_at"] else None,
+    }
+    if job["status"] == "completed":
+        result.update({
+            "document_id": job["document_id"],
+            "text": job["extracted_text"],
+            "confidence": float(job["confidence"]) if job["confidence"] else None,
+            "processing_time_ms": job["processing_time_ms"],
+            "completed_at": job["completed_at"].isoformat() if job["completed_at"] else None,
+        })
+    elif job["status"] == "failed":
+        result["error"] = job["error_message"]
+
+    return JSONResponse(content=result)
 
 
 @app.get("/queue/status")
 async def queue_status(username: str = Depends(verify_credentials)):
-    """Current job queue status."""
+    """Current job queue status from PostgreSQL."""
     from fastapi.responses import JSONResponse
 
-    processing = sum(1 for j in _ocr_jobs.values() if j["status"] == "processing")
-    completed = sum(1 for j in _ocr_jobs.values() if j["status"] == "completed")
-    failed = sum(1 for j in _ocr_jobs.values() if j["status"] == "failed")
+    session = get_session()
+    try:
+        row = session.execute(sa_text(
+            "SELECT "
+            "COUNT(*) as total, "
+            "COUNT(*) FILTER (WHERE status='processing') as processing, "
+            "COUNT(*) FILTER (WHERE status='completed') as completed, "
+            "COUNT(*) FILTER (WHERE status='failed') as failed, "
+            "AVG(processing_time_ms) FILTER (WHERE status='completed') as avg_time_ms, "
+            "PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY processing_time_ms) FILTER (WHERE status='completed') as p95_time_ms "
+            "FROM ocr_jobs"
+        )).mappings().first()
 
-    return JSONResponse(content={
-        "total_jobs": len(_ocr_jobs),
-        "processing": processing,
-        "completed": completed,
-        "failed": failed,
-        "max_jobs": _MAX_JOBS,
-    })
+        return JSONResponse(content={
+            "total_jobs": row["total"],
+            "processing": row["processing"],
+            "completed": row["completed"],
+            "failed": row["failed"],
+            "avg_processing_time_ms": round(float(row["avg_time_ms"])) if row["avg_time_ms"] else None,
+            "p95_processing_time_ms": round(float(row["p95_time_ms"])) if row["p95_time_ms"] else None,
+        })
+    finally:
+        session.close()
 
 
 @app.post("/process/async", response_model=ProcessingResponse)
