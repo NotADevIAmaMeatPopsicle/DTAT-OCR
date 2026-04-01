@@ -238,16 +238,22 @@ DTAT-OCR/
 **Completed:**
 - AWS Textract integration (1-3s/page, 90%+ confidence)
 - Multi-page PDF support (up to 5MB via sync Textract API)
+- Large PDF support (>5MB via S3 upload + async Textract API)
+- Password-protected PDF detection with clear user error
+- Textract rate limit retry (adaptive backoff, 5 max attempts)
 - Multi-format output (Textract, Google Vision, Azure OCR)
 - High-volume: 4 workers, PostgreSQL, async job queue
 - Boomi integration via `/ocr` binary passthrough
 - Load tested: 50-doc burst, 0 failures, 250 docs/min direct
-- Web UI, Swagger docs, profile-based extraction
+- Web UI with settings page (AWS credentials, auth, database config)
+- Swagger API docs, profile-based extraction
 
 **Planned:**
-- S3-based Textract for PDFs >5MB (async API)
+- File validation (magic bytes, corrupt file detection)
+- Blank page detection
+- Content hash dedup (skip re-processing identical documents)
+- Handwriting detection mode
 - SQS integration for guaranteed message delivery
-- Managed RDS PostgreSQL
 - ECS Fargate with auto-scaling
 - Boomi Event Streams decoupling for higher WSS throughput
 
