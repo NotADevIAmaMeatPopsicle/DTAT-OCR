@@ -267,4 +267,4 @@ DTAT-OCR/
 
 ## License
 
-MIT — all dependencies are permissively licensed (MIT/BSD/Apache 2.0). Safe for commercial use.
+MIT License. All dependencies are permissively licensed (MIT/BSD/Apache 2.0) except `psycopg2-binary` which is LGPL-3.0. LGPL permits commercial use as a library dependency without requiring your code to be open-sourced.
