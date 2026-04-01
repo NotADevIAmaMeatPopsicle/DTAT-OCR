@@ -680,6 +680,136 @@ async def ocr_raw_binary(
         raise HTTPException(status_code=500, detail="No normalized content available")
 
 
+# =============================================================================
+# ASYNC OCR JOB SYSTEM
+# =============================================================================
+
+import asyncio
+import uuid as _uuid
+from collections import OrderedDict
+
+# In-memory job store (survives across requests within a worker, not across restarts)
+_ocr_jobs: OrderedDict = OrderedDict()
+_MAX_JOBS = 500  # Evict oldest jobs when exceeded
+
+
+def _cleanup_jobs():
+    """Evict oldest jobs when store exceeds max size."""
+    while len(_ocr_jobs) > _MAX_JOBS:
+        _ocr_jobs.popitem(last=False)
+
+
+def _process_ocr_job(job_id: str, contents: bytes, file_type: str, filename: str):
+    """Process an OCR job synchronously (called from background task)."""
+    try:
+        record = create_document_record(filename=filename, file_bytes=contents, file_type=file_type)
+        doc_id = save_document(record)
+        record.id = doc_id
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_type}") as tmp:
+            tmp.write(contents)
+            tmp_path = Path(tmp.name)
+
+        try:
+            pipeline = ExtractionPipeline()
+            result = pipeline.process(record, tmp_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+        doc = get_document(result.id)
+        text = ""
+        if doc:
+            content = doc.get_extracted_content()
+            if isinstance(content, dict) and "blocks" in content:
+                text = "\n".join(b.get("text", "") for b in content["blocks"] if b.get("text"))
+            elif isinstance(content, dict):
+                text = content.get("text", content.get("extracted_text", ""))
+
+        _ocr_jobs[job_id].update({
+            "status": "completed",
+            "document_id": result.id,
+            "text": text,
+            "confidence": result.confidence_score,
+            "processing_time_ms": result.processing_time_ms,
+        })
+    except Exception as e:
+        _ocr_jobs[job_id].update({
+            "status": "failed",
+            "error": str(e),
+        })
+
+
+@app.post("/ocr/async")
+async def ocr_async(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    username: str = Depends(verify_credentials)
+):
+    """
+    Fire-and-forget OCR. Returns job ID immediately, poll /ocr/jobs/{job_id} for result.
+    Accepts raw image binary in request body.
+    """
+    from fastapi.responses import JSONResponse
+
+    content_type = request.headers.get("content-type", "image/png")
+    contents = await request.body()
+
+    if not contents:
+        raise HTTPException(status_code=400, detail="Empty request body")
+
+    if len(contents) > config.max_file_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"File too large. Max: {config.max_file_size_mb}MB")
+
+    ext_map = {
+        "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
+        "image/tiff": "tiff", "image/bmp": "bmp", "application/pdf": "pdf",
+        "application/octet-stream": "png",
+    }
+    file_type = ext_map.get(content_type.split(";")[0].strip().lower(), "png")
+    filename = f"async_upload.{file_type}"
+
+    job_id = str(_uuid.uuid4())
+    _ocr_jobs[job_id] = {"status": "processing", "created_at": datetime.utcnow().isoformat()}
+    _cleanup_jobs()
+
+    background_tasks.add_task(_process_ocr_job, job_id, contents, file_type, filename)
+
+    return JSONResponse(content={"job_id": job_id, "status": "processing"})
+
+
+@app.get("/ocr/jobs/{job_id}")
+async def ocr_job_status(
+    job_id: str,
+    username: str = Depends(verify_credentials)
+):
+    """Poll for async OCR job result."""
+    from fastapi.responses import JSONResponse
+
+    job = _ocr_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return JSONResponse(content={"job_id": job_id, **job})
+
+
+@app.get("/queue/status")
+async def queue_status(username: str = Depends(verify_credentials)):
+    """Current job queue status."""
+    from fastapi.responses import JSONResponse
+
+    processing = sum(1 for j in _ocr_jobs.values() if j["status"] == "processing")
+    completed = sum(1 for j in _ocr_jobs.values() if j["status"] == "completed")
+    failed = sum(1 for j in _ocr_jobs.values() if j["status"] == "failed")
+
+    return JSONResponse(content={
+        "total_jobs": len(_ocr_jobs),
+        "processing": processing,
+        "completed": completed,
+        "failed": failed,
+        "max_jobs": _MAX_JOBS,
+    })
+
+
 @app.post("/process/async", response_model=ProcessingResponse)
 async def process_document_async(
     file: UploadFile = File(...),
