@@ -251,6 +251,7 @@ class SettingsUpdate(BaseModel):
     enable_textract: Optional[bool] = None
     min_confidence_score: Optional[int] = None
     max_retries_per_level: Optional[int] = None
+    force_cpu: Optional[bool] = None
 
 
 # =============================================================================
@@ -502,13 +503,23 @@ async def system_info(username: str = Depends(verify_credentials)):
     from html import escape
     import torch
 
-    device = "CUDA" if torch.cuda.is_available() else ("MPS" if torch.backends.mps.is_available() else "CPU")
-    if torch.cuda.is_available():
-        gpu_name = torch.cuda.get_device_name(0)
-    else:
-        gpu_name = "N/A"
+    gpu_available = torch.cuda.is_available()
+    mps_available = torch.backends.mps.is_available()
+    gpu_name = torch.cuda.get_device_name(0) if gpu_available else "N/A"
 
-    # Escape potentially untrusted values
+    if config.force_cpu:
+        active_device = "CPU (GPU disabled by config)"
+        device_badge = "bg-yellow-100 text-yellow-800"
+    elif gpu_available:
+        active_device = f"CUDA — {gpu_name}"
+        device_badge = "bg-green-100 text-green-800"
+    elif mps_available:
+        active_device = "Apple MPS"
+        device_badge = "bg-green-100 text-green-800"
+    else:
+        active_device = "CPU (no GPU detected)"
+        device_badge = "bg-gray-100 text-gray-800"
+
     safe_gpu_name = escape(gpu_name)
     safe_db_url = escape(config.database_url[:50])
 
@@ -516,9 +527,12 @@ async def system_info(username: str = Depends(verify_credentials)):
     <div class="grid grid-cols-2 gap-4 text-sm">
         <div><span class="text-gray-500">Platform:</span> <span class="font-medium">{platform.system()} {platform.release()}</span></div>
         <div><span class="text-gray-500">Python:</span> <span class="font-medium">{platform.python_version()}</span></div>
-        <div><span class="text-gray-500">Compute Device:</span> <span class="font-medium">{device}</span></div>
-        <div><span class="text-gray-500">GPU:</span> <span class="font-medium">{safe_gpu_name}</span></div>
-        <div><span class="text-gray-500">Database:</span> <span class="font-medium">{safe_db_url}...</span></div>
+        <div>
+            <span class="text-gray-500">Compute Device:</span>
+            <span class="inline-flex items-center rounded-full {device_badge} px-2 py-0.5 text-xs font-medium ml-1">{escape(active_device)}</span>
+        </div>
+        <div><span class="text-gray-500">GPU Available:</span> <span class="font-medium">{"Yes — " + safe_gpu_name if gpu_available else "No"}</span></div>
+        <div><span class="text-gray-500">Force CPU:</span> <span class="font-medium">{"Yes" if config.force_cpu else "No (auto-detect)"}</span></div>
         <div><span class="text-gray-500">Max File Size:</span> <span class="font-medium">{config.max_file_size_mb} MB</span></div>
     </div>
     '''
@@ -535,6 +549,13 @@ async def update_settings(settings: SettingsUpdate, username: str = Depends(veri
         config.min_confidence_score = settings.min_confidence_score
     if settings.max_retries_per_level is not None:
         config.max_retries_per_level = settings.max_retries_per_level
+    if settings.force_cpu is not None:
+        config.force_cpu = settings.force_cpu
+        # Reset model so it reloads on next request with new device setting
+        from extraction_pipeline import LocalOCRExtractor
+        LocalOCRExtractor._model = None
+        LocalOCRExtractor._processor = None
+        LocalOCRExtractor._device = None
 
     return {"status": "ok", "message": "Settings updated"}
 

@@ -597,7 +597,11 @@ class LocalOCRExtractor:
             import torch
             from transformers import LightOnOcrForConditionalGeneration, LightOnOcrProcessor
 
-            if torch.cuda.is_available():
+            if config.force_cpu:
+                cls._device = "cpu"
+                cls._dtype = torch.float32
+                print("GPU disabled by config (force_cpu=True)")
+            elif torch.cuda.is_available():
                 cls._device = "cuda"
                 cls._dtype = torch.bfloat16
             elif torch.backends.mps.is_available():

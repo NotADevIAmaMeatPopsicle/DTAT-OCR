@@ -146,6 +146,30 @@
         </div>
     </div>
 
+    <!-- GPU / Compute -->
+    <div class="bg-white shadow rounded-lg p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-2">GPU / Compute</h2>
+        <p class="text-sm text-gray-500 mb-4">Controls hardware acceleration for local OCR model. GPU is auto-detected and enabled by default when available.</p>
+
+        <div class="space-y-4">
+            <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div>
+                    <div class="flex items-center">
+                        <span class="font-medium text-gray-900">Force CPU Mode</span>
+                        <span class="ml-2 inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">Local OCR only</span>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-1">Disable GPU acceleration even when available. Useful for leaving GPU free for other workloads. Requires model reload on next OCR request.</p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="force_cpu" {{ 'checked' if config.force_cpu else '' }} class="sr-only peer">
+                    <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+            </div>
+        </div>
+
+        <p class="text-xs text-gray-400 mt-3">GPU status and device info shown in System Information below. Changing this setting will reload the OCR model on next request.</p>
+    </div>
+
     <!-- Quality Settings -->
     <div class="bg-white shadow rounded-lg p-6">
         <h2 class="text-lg font-semibold text-gray-900 mb-4">Quality Thresholds</h2>
@@ -213,6 +237,7 @@ async function saveSettings() {
         enable_textract: document.getElementById('enable_textract').checked,
         min_confidence_score: parseInt(document.getElementById('min_confidence').value),
         max_retries_per_level: parseInt(document.getElementById('max_retries').value),
+        force_cpu: document.getElementById('force_cpu').checked,
     };
 
     try {

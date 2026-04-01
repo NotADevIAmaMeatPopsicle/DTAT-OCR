@@ -52,6 +52,7 @@ class ProcessingConfig:
     enable_handwriting: bool = True          # Add HANDWRITING to Textract FeatureTypes for images
     blank_page_threshold: int = 10           # Pages with fewer chars flagged as blank
     default_language: str = field(default_factory=lambda: os.getenv("OCR_LANGUAGE", "en"))  # Language hint
+    force_cpu: bool = field(default_factory=lambda: os.getenv("FORCE_CPU", "false").lower() == "true")  # Override GPU auto-detect
 
     # Processing settings
     batch_size: int = 10                     # Process N docs before committing
