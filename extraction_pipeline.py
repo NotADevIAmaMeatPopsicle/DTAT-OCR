@@ -650,11 +650,14 @@ class LocalOCRExtractor:
 
             full_text = "\n\n".join(all_text)
 
+            # Parse markdown tables from LightOnOCR output
+            tables = cls._parse_markdown_tables(full_text)
+
             result = ExtractionResult(
                 success=True,
                 text_content=full_text,
-                tables=[],  # OCR doesn't extract structured tables
-                metadata={"pages": page_count, "ocr_device": cls._device},
+                tables=tables,
+                metadata={"pages": page_count, "ocr_device": cls._device, "tables_found": len(tables)},
                 confidence_score=0,
                 method_used=ExtractionMethod.LOCAL_OCR.value,
                 processing_time_ms=int((time.time() - start_time) * 1000)
@@ -674,6 +677,41 @@ class LocalOCRExtractor:
                 error_message=f"{type(e).__name__}: {str(e)}",
                 processing_time_ms=int((time.time() - start_time) * 1000)
             )
+
+    @staticmethod
+    def _parse_markdown_tables(text: str) -> list:
+        """
+        Extract structured tables from LightOnOCR markdown output.
+        Detects | col | col | patterns and converts to list-of-dicts.
+        """
+        tables = []
+        current_table = []
+        headers = None
+
+        for line in text.split('\n'):
+            stripped = line.strip()
+            # Detect table rows: must start and end with |
+            if stripped.startswith('|') and stripped.endswith('|'):
+                cells = [c.strip() for c in stripped.split('|')[1:-1]]
+                # Skip separator rows (|---|---|)
+                if all(set(c) <= set('-: ') for c in cells):
+                    continue
+                if headers is None:
+                    headers = cells
+                else:
+                    current_table.append(dict(zip(headers, cells)))
+            else:
+                # End of table block
+                if current_table and headers:
+                    tables.append(current_table)
+                current_table = []
+                headers = None
+
+        # Catch trailing table
+        if current_table and headers:
+            tables.append(current_table)
+
+        return tables
 
     @classmethod
     def _ocr_single_image(cls, image) -> str:
@@ -845,14 +883,23 @@ class TextractExtractor:
 
             if file_type == 'pdf' and len(file_bytes) > 5 * 1024 * 1024:
                 # Large PDFs (>5MB): use S3 upload + async Textract API
-                if not config.s3_bucket:
+                if config.s3_bucket:
+                    all_blocks = cls._process_via_s3(file_path, file_bytes)
+                elif config.enable_local_ocr:
+                    # Fall through — let local OCR handle it (no size limit)
                     return ExtractionResult(
                         success=False, text_content="", tables=[], metadata={},
                         confidence_score=0, method_used=ExtractionMethod.TEXTRACT.value,
-                        error_message="PDF too large for direct Textract (>5MB). Set S3_BUCKET env var to enable large file processing.",
+                        error_message="PDF >5MB, falling through to local OCR",
                         processing_time_ms=int((time.time() - start_time) * 1000)
                     )
-                all_blocks = cls._process_via_s3(file_path, file_bytes)
+                else:
+                    return ExtractionResult(
+                        success=False, text_content="", tables=[], metadata={},
+                        confidence_score=0, method_used=ExtractionMethod.TEXTRACT.value,
+                        error_message="PDF too large for direct Textract (>5MB). Enable S3_BUCKET for async processing or enable local OCR as fallback.",
+                        processing_time_ms=int((time.time() - start_time) * 1000)
+                    )
             elif file_type == 'pdf':
                 # PDFs: use analyze_document with TABLES+FORMS for richer extraction
                 # Textract sync API handles multi-page PDFs up to 5MB
