@@ -61,3 +61,6 @@ CLAUDE.md
 
 # Deployment logs (contain infrastructure details)
 DEPLOYMENT-LOG.md
+
+# Internal task planning docs
+docs/tasks/

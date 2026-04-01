@@ -23,14 +23,13 @@ Swiss Army Knife document processor with OCR fallback. Handles PDFs, Excel, CSV,
 - **🐳 Docker ready**: CPU and GPU images available
 - **⚖️ Fully permissive licensing**: All dependencies are MIT/BSD/Apache 2.0
 
-## Live Demo (AWS Deployment)
+## Live Demo
 
-**Status:** ✅ Live and operational on AWS g4dn.xlarge
+**Status:** ✅ Live on AWS EC2
 
-- **URL**: http://54.80.47.194:8000
-- **Credentials**: Contact admin for access
-- **Deployment**: See `DEPLOYMENT-LOG.md` for full details
-- **Cost**: ~$92/month (8hrs/day, 20 days/month)
+- **Web UI**: Hosted and accessible via reverse proxy
+- **OCR Engine**: AWS Textract (primary), LightOnOCR (optional local fallback)
+- **Boomi Integration**: Exposed as a WSS endpoint for enterprise integration workflows
 
 ## Architecture
 
@@ -43,23 +42,32 @@ Document In
 │ pdfplumber, pandas, python-docx     │
 │ Confidence check → pass? → Done ✓   │
 └─────────────────────────────────────┘
-    │ fail/low confidence
+    │ fail/low confidence (or image input)
     ▼
 ┌─────────────────────────────────────┐
-│ Level 2: LightOnOCR (Local GPU/CPU) │  Images, scanned PDFs
-│ Retry up to 2x per level            │
-│ Confidence check → pass? → Done ✓   │
+│ Level 2: AWS Textract (DEFAULT)     │  Images, scanned PDFs
+│ ~1-3 seconds per page               │
+│ 90%+ confidence → Done ✓            │
 └─────────────────────────────────────┘
     │ fail
     ▼
 ┌─────────────────────────────────────┐
-│ Level 3: AWS Textract (DISABLED)    │  Optional paid fallback
+│ Level 3: LightOnOCR (OPTIONAL)      │  Local GPU/CPU fallback
+│ No cloud dependency, offline mode    │
 └─────────────────────────────────────┘
     │ fail
     ▼
 ┌─────────────────────────────────────┐
 │ Dead Letter Queue                   │  Manual review
 └─────────────────────────────────────┘
+```
+
+### Boomi Integration
+
+DTAT-OCR includes a `/ocr` endpoint designed for Boomi passthrough — accepts raw image binary via POST and returns extracted text directly. This enables a simple 3-shape Boomi process (WSS Listener → REST Connector → Return Documents) with no scripting required.
+
+```
+Browser → Boomi WSS → REST Connector → DTAT-OCR /ocr → AWS Textract → Response
 ```
 
 ## Multi-Format Output Support
@@ -225,7 +233,7 @@ response = requests.get('http://dtat-server:8000/documents/123/content?format=go
 
 ```bash
 # Clone the repository
-git clone https://github.com/NotADevIAmaMeatPopsicle/DTAT-OCR.git
+git clone https://github.com/MrGriff-Boomi/DTAT-OCR.git
 cd DTAT-OCR
 
 # Create virtual environment
@@ -291,10 +299,11 @@ python worker.py config --disable-textract
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | GET | Health check |
+| `/health` | GET | Health check (no auth) |
 | `/stats` | GET | Processing statistics |
-| `/process` | POST | Upload & process (sync) |
+| `/process` | POST | Upload & process via multipart form (sync) |
 | `/process/async` | POST | Upload & queue (async) |
+| `/ocr` | POST | Raw binary OCR — accepts image bytes, returns text (Boomi passthrough) |
 | `/documents` | GET | List all documents |
 | `/documents/{id}` | GET | Get document metadata |
 | `/documents/{id}/content?format={format}` | GET | Get extracted content in specified format |
@@ -414,9 +423,9 @@ Edit `config.py` or use the Web UI at `/ui/settings`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `enable_native_extraction` | `True` | Level 1: Free parsing |
-| `enable_local_ocr` | `True` | Level 2: LightOnOCR |
-| `enable_textract` | `False` | Level 3: AWS Textract |
+| `enable_native_extraction` | `True` | Level 1: Free parsing (PDF, Excel, Word) |
+| `enable_local_ocr` | `False` | Level 2: LightOnOCR (local, slow on CPU) |
+| `enable_textract` | `True` | Level 2: AWS Textract (~1-3s per page) |
 | `ocr_offline_mode` | `True` | Don't call HF Hub |
 | `min_confidence_score` | `60` | Threshold to escalate |
 | `max_retries_per_level` | `2` | Retries before escalating |
@@ -461,14 +470,15 @@ DTAT-OCR/
 │
 ├── docs/
 │   ├── adr/                  # Architecture Decision Records
-│   │   └── 001-replace-pymupdf-with-pdfplumber.md
-│   ├── tasks/                # Task planning documents
-│   │   ├── README.md         # Task roadmap
-│   │   ├── TASK-001-Multi-Format-Output-Support.md
-│   │   ├── TASK-002-Profile-Schema-Management-System.md
-│   │   ├── TASK-003-Structured-Field-Extraction.md
-│   │   └── TASK-004-Batch-Processing-Support.md
-│   └── OCR-API-FORMATS.md    # Format specifications and comparisons
+│   ├── OCR-API-FORMATS.md    # Format specifications and comparisons
+│   ├── PROFILE-TEMPLATES.md  # Built-in extraction profiles
+│   └── CHANGELOG.md          # Version history
+│
+├── tests/                    # Test suite
+│   ├── test_extractors.py
+│   ├── test_field_utils.py
+│   ├── test_templates.py
+│   └── ...                   # 8 test files
 │
 ├── Dockerfile                # CPU Docker image
 ├── Dockerfile.gpu            # GPU Docker image (CUDA)
@@ -478,20 +488,24 @@ DTAT-OCR/
 
 ## Roadmap
 
-### Current Status: Enhanced MVP
+### Current Status: Production-Ready
 
-The core document processing pipeline is fully functional with multi-format output support.
+The core document processing pipeline is fully functional with AWS Textract integration and multi-format output support.
 
-**✅ Completed Features**:
+**Completed**:
+- AWS Textract integration (1-3s per page, 90%+ confidence)
 - Multi-format output (Textract, Google Vision, Azure OCR compatible)
-- Drop-in replacement for commercial OCR services
-- Normalized internal format for future features
-- Backward-compatible DTAT native format
+- Raw binary `/ocr` endpoint for Boomi/integration passthrough
+- Web UI with drag-and-drop processing and document viewer
+- Profile-based extraction with built-in templates (invoice, receipt, W-2, driver's license)
+- HTTP Basic Authentication on all endpoints
+- Docker containerization (CPU and GPU images)
 
-**🚧 In Progress** (See `docs/tasks/` for details):
-- TASK-002: Profile & Schema Management System (user-defined extraction profiles)
-- TASK-003: Structured Field Extraction (AWS Bedrock LLM integration)
-- TASK-004: Batch Processing Support (100+ docs in single request)
+**Planned**:
+- SQS integration for job queuing at scale
+- PostgreSQL/RDS support (currently SQLite)
+- Batch processing API (100+ docs in single request)
+- ECS Fargate deployment with auto-scaling
 
 ### Planned Features: AWS Production Deployment
 
