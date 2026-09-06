@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.playwright-cli/
+.review-venv/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+.eggs/
+*.egg-info/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Model cache (large files - download separately)
+model-cache/
+
+# Data directory (persistent storage)
+data/
+
+# Temp files
+*.tmp
+*.temp
+temp/
+nul
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test outputs
+*.output
+
+# Sample images (download via download_samples.py)
+samples/
+
+# AI agent config (not for public repos)
+CLAUDE.md
+
+# Deployment logs (contain infrastructure details)
+DEPLOYMENT-LOG.md
+
+# Internal task planning docs
+docs/tasks/
