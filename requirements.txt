@@ -24,7 +24,7 @@ torch>=2.0.0
 transformers>=4.40.0
 huggingface_hub>=0.20.0
 pillow>=10.0.0
-pypdfium2>=4.0.0
+pypdfium2>=5.13.0
 
 # AWS - Textract OCR
 # Keep the synchronous and asynchronous AWS SDKs on the compatibility window
