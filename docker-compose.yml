@@ -1,0 +1,57 @@
+# =============================================================================
+# DTAT OCR - Docker Compose (Local Development)
+# =============================================================================
+# Usage:
+#   docker-compose up --build        # Build and run
+#   docker-compose up -d             # Run in background
+#   docker-compose logs -f           # View logs
+#   docker-compose down              # Stop and remove
+# =============================================================================
+
+services:
+  dtat-ocr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dtat-ocr
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://ocr_demo:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/ocr_demo
+      - OCR_OFFLINE_MODE=true
+      - ENABLE_TEXTRACT=${ENABLE_TEXTRACT:-false}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - DTAT_USERNAME=${DTAT_USERNAME:-admin}
+      - DTAT_PASSWORD=${DTAT_PASSWORD:?Set DTAT_PASSWORD in .env}
+      - DTAT_AZURE_COMPAT_KEY=${DTAT_AZURE_COMPAT_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: ocr-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-ocr_demo}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      - POSTGRES_DB=${POSTGRES_DB:-ocr_demo}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ocr_demo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
