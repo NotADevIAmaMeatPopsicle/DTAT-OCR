@@ -9,7 +9,7 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Download model weights
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim AS model-downloader
+FROM python:3.15-slim AS model-downloader
 
 # Install minimal dependencies for downloading
 RUN pip install --no-cache-dir huggingface_hub transformers && \
@@ -22,7 +22,7 @@ RUN python -c "from huggingface_hub import snapshot_download; snapshot_download(
 # -----------------------------------------------------------------------------
 # Stage 2: Final image
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 # OCI image metadata
 LABEL org.opencontainers.image.title="DTAT OCR"
